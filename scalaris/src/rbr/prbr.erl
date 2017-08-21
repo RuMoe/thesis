@@ -172,8 +172,19 @@ on({prbr, round_request, _DB, Cons, Proposer, Key, DataType, ProposerUID, ReadFi
         end,
 
     %% Assign a valid next read round number
-    AssignedReadRound = next_read_round(KeyEntry, ProposerUID),
-
+    %% If this round_request is part a read it is not necessary
+    %% to increment the read round number, since a read does not
+    %% interfere with other reads or writes.
+    %% This allows concurrent reads and prevents
+    %% reads to interfere with concurrent writes.
+    AssignedReadRound =
+        case OpType =:= read of
+            true ->
+                OldRound = entry_r_read(KeyEntry),
+                pr:new(pr:get_r(OldRound), ProposerUID);
+            _ ->
+                next_read_round(KeyEntry, ProposerUID)
+        end,
     trace_mpath:log_info(self(), {'prbr:on(round_request)',
                                   %% key, Key,
                                   round, AssignedReadRound,
@@ -183,9 +194,20 @@ on({prbr, round_request, _DB, Cons, Proposer, Key, DataType, ProposerUID, ReadFi
     msg_round_request_reply(Proposer, Cons, AssignedReadRound,
                             entry_r_write(KeyEntry), ReadVal, OpType),
 
-    NewKeyEntry = entry_set_r_read(KeyEntry, AssignedReadRound),
-    NewKeyEntry2 = entry_set_val(NewKeyEntry, NewKeyEntryVal),
-    set_entry(NewKeyEntry2, TableName),
+    _ = case OpType =:= read andalso not ValueHasChanged of
+        true ->
+            %% No updates must be performed; save a DB write operation
+            %% (Above, the proposer UID of the read round is changed even
+            %% for a read. The new round must be returned to the client since
+            %% it contains the request id for the round_request, but it does
+            %% not have to be stored in DB since there are no follow-up requests
+            %% in a read and reads do not interfere with other ops)
+            ok;
+        false ->
+            NewKeyEntry = entry_set_r_read(KeyEntry, AssignedReadRound),
+            NewKeyEntry2 = entry_set_val(NewKeyEntry, NewKeyEntryVal),
+            set_entry(NewKeyEntry2, TableName)
+    end,
 
     TableName;
 

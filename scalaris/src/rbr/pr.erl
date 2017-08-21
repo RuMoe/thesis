@@ -27,7 +27,6 @@
 -export([new/2]).
 -export([get_r/1]).
 -export([get_id/1]).
--export([get_wti/1, set_wti/2]).
 %% let users retrieve their smallest possible round for fast_write on
 %% entry creation.
 -export([smallest_round/1]).
@@ -40,11 +39,6 @@
 
 -export_type([pr/0]).
 
--type write_through_info() ::
-          {
-           WriteReturn :: any(),
-           OriginalLearner :: any()
-          }.
 
 %% pr() has to be unique for this key system wide
 %% pr() has to be comparable with < and =<
@@ -55,13 +49,11 @@
 %% -type pr() :: {pos_integer(), {dht_node_id(), lease_epoch()}, none}.
 -type pr() ::
         {non_neg_integer(),         %% the actual round number
-         any(),                     %% the clients identifier to make unique
-         %% the used write_filter for write through and its parameters
-         none | write_through_info() %% ...
+         any()                      %% the clients identifier to make unique
         }.
 
 -spec new(non_neg_integer(), any()) -> pr().
-new(Counter, ProposerUID) -> {Counter, ProposerUID, none}.
+new(Counter, ProposerUID) -> {Counter, ProposerUID}.
 
 -spec get_r(pr()) -> non_neg_integer().
 get_r(RwId) -> element(1, RwId).
@@ -69,13 +61,6 @@ get_r(RwId) -> element(1, RwId).
 -spec get_id(pr()) -> any().
 get_id(RwId) -> element(2, RwId).
 
--spec get_wti(pr()) -> none | write_through_info().
-get_wti(RwId) -> element(3, RwId).
-
--spec set_wti(pr(), none | write_through_info()) -> pr().
-set_wti(R, WTI) -> setelement(3, R, WTI).
-
-%% As the round number contains the client's pid, they are still
 %% unique.  Two clients using their smallest_round for a fast write
 %% concurrently are separated, because we do not use plain Paxos, but
 %% assign a succesful writer immediately the next round_number for a

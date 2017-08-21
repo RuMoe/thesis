@@ -25,10 +25,14 @@
 -define(TRACE(X,Y), ok).
 -include("scalaris.hrl").
 
+-define(FAST_WRITE, config:read(prbr_enable_fast_write)).
+
 -define(PDB, db_prbr).
 -define(REPAIR, config:read(prbr_repair_on_write)).
 -define(REPAIR_DELAY, 100). % in ms
 -define(REDUNDANCY, config:read(redundancy_module)).
+
+-define(CSET_SIZE_SOFT_CAP, config:read(prbr_cset_size_soft_cap)).
 
 %%% the prbr has to be embedded into a gen_component using it.
 %%% The state it operates on has to be passed to the on handler
@@ -111,19 +115,22 @@
 -type entry() :: { any(), %% key
                    pr:pr(), %% r_read
                    pr:pr(), %% r_write
-                   any() %% value
+                   any(), %% value
+                   cset:class(), %% last equivalence class seen in read
+                   cset:cset(), %% current set of commuting commands in progress
+                   cset:cset()  %% the previous cset
                  }.
 
 %% Messages to expect from this module
--spec msg_round_request_reply(comm:mypid(), boolean(), pr:pr(), pr:pr(), any(), atom()) -> ok.
-msg_round_request_reply(Client, Cons, ReadRound, WriteRound, Value, OpType) ->
-    comm:send(Client, {round_request_reply, Cons,  ReadRound, WriteRound, Value, OpType}).
+-spec msg_round_request_reply(comm:mypid(), boolean(), pr:pr(), pr:pr(),
+                              any(), cset:cset(), cset:cset()) -> ok.
+msg_round_request_reply(Client, Cons, ReadRound, WriteRound, Value, CSet, PrevCSet) ->
+    comm:send(Client, {round_request_reply, Cons,  ReadRound, WriteRound, Value, CSet, PrevCSet}).
 
--spec msg_read_reply(comm:mypid(), Consistency::boolean(),
-                     pr:pr(), any(), pr:pr())
-             -> ok.
-msg_read_reply(Client, Cons, YourRound, Val, LastWriteRound) ->
-    comm:send(Client, {read_reply, Cons, YourRound, Val, LastWriteRound}).
+-spec msg_read_reply(comm:mypid(), Consistency::boolean(), pr:pr(), atom(),
+                     any(), cset:cset(), cset:cset()) -> ok.
+msg_read_reply(Client, Cons, YourRound, Val, LastWriteRound, CSet, PrevCSet) ->
+    comm:send(Client, {read_reply, Cons, YourRound, Val, LastWriteRound, CSet, PrevCSet}).
 
 -spec msg_read_deny(comm:mypid(), Consistency::boolean(), pr:pr(), pr:pr()) -> ok.
 msg_read_deny(Client, Cons, YourRound, LargerRound) ->
@@ -160,7 +167,7 @@ close(State) -> ?PDB:close(State).
 close_and_delete(State) -> ?PDB:close_and_delete(State).
 
 -spec on(message(), state()) -> state().
-on({prbr, round_request, _DB, Cons, Proposer, Key, DataType, ProposerUID, ReadFilter, OpType}, TableName) ->
+on({prbr, round_request, _DB, Cons, Proposer, Key, DataType, ProposerUID, ReadFilter, CmdClass}, TableName) ->
     ?TRACE("prbr:round_request: ~p in round ~p~n", [Key, ProposerUID]),
     KeyEntry = get_entry(Key, TableName),
 
@@ -171,25 +178,77 @@ on({prbr, round_request, _DB, Cons, Proposer, Key, DataType, ProposerUID, ReadFi
             _    -> {entry_val(KeyEntry), ReadFilter(entry_val(KeyEntry)), false}
         end,
 
-    %% Assign a valid next read round number
-    AssignedReadRound = next_read_round(KeyEntry, ProposerUID),
+    %% Check if the current command interferes with the last seen command.
+    %% A read never interferes with another command. If the current command
+    %% belongs to the same class, it means that they commute and thus not interfere.
+    %% Expection: Checkpoints interfere with all other commands.
+    %% Interference is not symmetric: In-progress reads do not interfere with
+    %% checkpoints, but in-progress checkpoints interfere with reads
+    LastReadClass = entry_cmd_class_read(KeyEntry),
+    CurrentCSetSize = cset:size(entry_cset(KeyEntry)),
+    ReadClass = cset:read_class(),
+    CheckpointClass = cset:non_commuting_class(),
+    IsInterfering = case CmdClass of
+                        CheckpointClass -> true;
+                        ReadClass -> false;
+                        LastReadClass ->
+                            %% CSets grow linear in size when processing commuting
+                            %% commands. Since unrestricted growth causes trouble,
+                            %% we need to set a limit.
+                            %% Pretend this write is interfering if the limit is reached
+                            SizeLimitReached = CurrentCSetSize >= ?CSET_SIZE_SOFT_CAP,
+                            %% If read round is greater than write round (it cannot be smaller),
+                            %% then this request will always start a new cset. Therefore, the
+                            %% size restriction of the current cset does not apply
+                            SameCSet = pr:get_r(entry_r_read(KeyEntry)) =:=
+                                        pr:get_r(entry_r_write(KeyEntry)),
 
+                            SameCSet andalso SizeLimitReached;
+                        _ -> true
+                    end,
+
+    %% Assign a valid next read round number
+    %% Do not increment it if there is no command interference.
+    %% This prevents concurrent, but commuting commands form
+    %% interfering with each other, since the proposer will receive
+    %% consistent read rounds from all replicas.
+    AssignedReadRound =
+        case not IsInterfering  of
+            true ->
+                OldRound = entry_r_read(KeyEntry),
+                pr:new(pr:get_r(OldRound), ProposerUID);
+            _ ->
+                next_read_round(KeyEntry, ProposerUID)
+        end,
     trace_mpath:log_info(self(), {'prbr:on(round_request)',
                                   %% key, Key,
                                   round, AssignedReadRound,
                                   val, NewKeyEntryVal,
                                   read_filter, ReadFilter}),
 
-    msg_round_request_reply(Proposer, Cons, AssignedReadRound,
-                            entry_r_write(KeyEntry), ReadVal, OpType),
+    msg_round_request_reply(Proposer, Cons, AssignedReadRound, entry_r_write(KeyEntry),
+                            ReadVal, entry_cset(KeyEntry), entry_prev_cset(KeyEntry)),
 
-    NewKeyEntry = entry_set_r_read(KeyEntry, AssignedReadRound),
-    NewKeyEntry2 = entry_set_val(NewKeyEntry, NewKeyEntryVal),
-    set_entry(NewKeyEntry2, TableName),
+    _ = case not IsInterfering andalso not ValueHasChanged of
+        true ->
+            %% No updates must be performed; save a DB write operation
+            %% (Above, the proposer UID of the read round is changed even
+            %% for a read. The new round must be returned to the client since
+            %% it contains the request id for the round_request, but it does
+            %% not have to be stored in DB since there are no follow-up requests
+            %% in a read and reads do not interfere with other ops)
+            ok;
+        false ->
+            NewKeyEntry = entry_set_r_read(KeyEntry, AssignedReadRound),
+            NewKeyEntry2 = entry_set_val(NewKeyEntry, NewKeyEntryVal),
+            NewKeyEntry3 = entry_set_cmd_class_read(NewKeyEntry2, CmdClass),
+            set_entry(NewKeyEntry3, TableName)
+    end,
 
     TableName;
 
-on({prbr, read, _DB, Cons, Proposer, Key, DataType, ProposerUID, ReadFilter, ReadRound}, TableName) ->
+on({prbr, read, _DB, Cons, Proposer, Key, DataType, ProposerUID, ReadFilter,
+   ReadRound, CmdClass}, TableName) ->
     ?TRACE("prbr:read: ~p in round ~p~n", [Key, ReadRound]),
     KeyEntry = get_entry(Key, TableName),
 
@@ -212,43 +271,32 @@ on({prbr, read, _DB, Cons, Proposer, Key, DataType, ProposerUID, ReadFilter, Rea
             % round_request, and therefore a different ProposerUID.
             NewReadRound = pr:new(pr:get_r(ReadRound), ProposerUID),
 
-            msg_read_reply(Proposer, Cons, NewReadRound,
-                           ReadVal, EntryWriteRound),
+            msg_read_reply(Proposer, Cons, NewReadRound, ReadVal, EntryWriteRound,
+                           entry_cset(KeyEntry), entry_prev_cset(KeyEntry)),
 
             NewKeyEntry = entry_set_r_read(KeyEntry, NewReadRound),
             NewKeyEntry2 = entry_set_val(NewKeyEntry, NewKeyEntryVal),
-            _ = set_entry(NewKeyEntry2, TableName);
+            NewKeyEntry3 = entry_set_cmd_class_read(NewKeyEntry2, CmdClass),
+            _ = set_entry(NewKeyEntry3, TableName);
          _ ->
             msg_read_deny(Proposer, Cons, ReadRound, entry_r_read(KeyEntry))
     end,
     TableName;
 
-on({prbr, write, DB, Cons, Proposer, Key, DataType, ProposerUID, InRound, OldWriteRound, Value,
-    PassedToUpdate, WriteFilter, IsWriteThrough}, TableName) ->
-    ?TRACE("prbr:write for key: ~p in round ~p~n", [Key, InRound]),
+%% TODO fix fast_write? write must deliver prev_cmd_id information etc, client must store that
+%% TODO do only store needed cmd infos when writing checkpoint here
+on({prbr, write, DB, Cons, Proposer, Key, CmdClass, DataType, ProposerUID, InRound,
+    PrevCSet, Value, PassedToUpdate, WriteFilter, IsWriteThrough}, TableName) ->
+
+    ?TRACE("prbr:write for key: ~p in round ~n~p~n", [Key, InRound]),
     trace_mpath:log_info(self(), {prbr_on_write}),
     KeyEntry = get_entry(Key, TableName),
 
-    %% When this is part of a write through keep the old proposer,
-    %% so that the original proposer of the write gets notified of
-    %% write progress as well.
-    {LearnerToNotify, LearnerForWTI} =
-            case IsWriteThrough of
-                false ->
-                    {[Proposer], Proposer};
-                true ->
-                    {_, OrigLearner} = pr:get_wti(InRound),
-                    %% The follow-up behaviour of a WT does not change if it is
-                    %% successful or denied. In both cases the original request
-                    %% is retried. Therefore we do need to keep old WT learner around
-                    %% since sending updated progress is of no benefit. This prevents
-                    %% a long list of WT-Learner caused by write throughs followed by
-                    %% write throughs due to duelling requests (which is likely for a
-                    %% high replication factor with a high number of concurrent requests).
-                    {[OrigLearner, Proposer], OrigLearner}
-              end,
-    _ = case writable(KeyEntry, InRound, OldWriteRound, WriteFilter) of
-            true ->
+    _ = case writable(KeyEntry, CmdClass, InRound, PrevCSet, IsWriteThrough) of
+            commute ->
+                %% This write commutes with the previous write command. In contrast
+                %% to the previous write, do not start a new cset. Instead append this cmd
+                %% to the current cset.
                 {NewVal, Ret} =
                     case erlang:function_exported(DataType, prbr_write_handler, 5) of
                         true ->
@@ -258,16 +306,15 @@ on({prbr, write, DB, Cons, Proposer, Key, DataType, ProposerUID, InRound, OldWri
                             WriteFilter(entry_val(KeyEntry), PassedToUpdate, Value)
                     end,
 
-                TWriteRound = pr:new(pr:get_r(InRound), ProposerUID),
-                %% store information to be able to reproduce the request in
-                %% write_throughs. We modify the InRound here to avoid duplicate
-                %% transfer of the Value etc.
-                NewWriteRound = pr:set_wti(TWriteRound, {Ret, LearnerForWTI}),
+                NewWriteRound = pr:new(pr:get_r(InRound), ProposerUID),
                 TEntry = entry_set_r_write(KeyEntry, NewWriteRound),
 
-                %% prepare for fast write 
-                NextWriteRound = next_read_round(TEntry, ProposerUID),
-                NewEntry = entry_set_r_read(TEntry, NextWriteRound),
+                %% extend current cset
+                CurrentCSet = entry_cset(TEntry),
+                ThisCmdId = {Proposer, Ret},
+                ThisCmd = cset:new_command(ThisCmdId, WriteFilter, PassedToUpdate, Value),
+                NewCSet = cset:add(ThisCmd, CurrentCSet),
+                NewEntry = entry_set_cset(TEntry, NewCSet),
 
                 trace_mpath:log_info(self(), {'prbr:on(write)',
                                               round, NewWriteRound,
@@ -275,9 +322,64 @@ on({prbr, write, DB, Cons, Proposer, Key, DataType, ProposerUID, InRound, OldWri
                                               val, Value,
                                               write_filter, WriteFilter,
                                               newval, NewVal}),
+
+                msg_write_reply(Proposer, Cons, Key, NewWriteRound,
+                                  entry_r_read(NewEntry), Ret),
+
+                set_entry(entry_set_val(NewEntry, NewVal), TableName);
+            true ->
+                %% Start of a new CSet
+
+                %%%% apply the current operation
+                {NewVal, Ret} =
+                    case erlang:function_exported(DataType, prbr_write_handler, 5) of
+                        true ->
+                            DataType:prbr_write_handler(KeyEntry, PassedToUpdate,
+                                                        Value, TableName, WriteFilter);
+                        _    ->
+                            WriteFilter(entry_val(KeyEntry), PassedToUpdate, Value)
+                    end,
+
+                %%%% update rounds
+                NewWriteRound = pr:new(pr:get_r(InRound), ProposerUID),
+                T1Entry = entry_set_r_write(KeyEntry, NewWriteRound),
+
+                NewReadRound =
+                    case ?FAST_WRITE of
+                        true ->
+                            %% prepare for fast write
+                            next_read_round(NewWriteRound, ProposerUID);
+                        _ ->
+                            NewWriteRound
+                    end,
+                T2Entry = entry_set_r_read(NewWriteRound, NewReadRound),
+
+                %%%% construct the new cset
+                {ThisCmdId, LearnerToNotify} =
+                    case IsWriteThrough of
+                        true ->
+                            %% TODO: explain
+                            CmdId = lists:flatten(cset:cmd_id_list(PrevCSet)),
+                            {CmdId, [{Proposer, Ret} | CmdId]};
+                        _ ->
+                            CmdId = {Proposer, Ret},
+                            {CmdId, [CmdId]}
+                    end,
+                T3Entry = entry_set_prev_cset(T2Entry, PrevCSet),
+                NewCSet = cset:new(CmdClass, pr:get_r(InRound)),
+                NewCmd = cset:new_command(ThisCmdId, WriteFilter, PassedToUpdate, Value),
+                NewEntry = entry_set_cset(T3Entry, cset:add(NewCmd, NewCSet)),
+
+                %%%% finish works
+                trace_mpath:log_info(self(), {'prbr:on(write)',
+                                              round, NewWriteRound,
+                                              passed_to_update, PassedToUpdate,
+                                              val, Value,
+                                              write_filter, WriteFilter,
+                                              newval, NewVal}),
                 [msg_write_reply(P, Cons, Key, NewWriteRound,
-                                  NextWriteRound, Ret)
-                 || P <- LearnerToNotify],
+                                  NewReadRound, R)
+                 || {P, R} <- LearnerToNotify],
 
                 set_entry(entry_set_val(NewEntry, NewVal), TableName);
             {false, Reason} ->
@@ -304,7 +406,9 @@ on({prbr, write, DB, Cons, Proposer, Key, DataType, ProposerUID, InRound, OldWri
                 %% The round the client used to write is send back, because the client
                 %% must distinguish between denies from its own request and possible
                 %% write through attempts based on its partially completed write.
-                [msg_write_deny(P, Cons, Key, RoundTried) || P <- LearnerToNotify]
+
+                %% TODO: in writethrough, do original writes need to be informed?
+                msg_write_deny(Proposer, Cons, Key, RoundTried)
         end,
     TableName;
 
@@ -406,7 +510,10 @@ new(Key, Val) ->
      _R_Read = pr:new(0, '_'),
      %% Note: atoms < pids, so this is a good default.
      _R_Write = pr:new(0, '_'),
-     _Value = Val
+     _Value = Val,
+     _CmdClass = cset:non_commuting_class(),
+     _CSet = cset:new(cset:non_commuting_class(), 0),
+     _PrevCmdIds = []
      }.
 
 -spec entry_key(entry()) -> any().
@@ -417,14 +524,32 @@ entry_key(Entry) -> element(1, Entry).
 entry_r_read(Entry) -> element(2, Entry).
 -spec entry_set_r_read(entry(), pr:pr()) -> entry().
 entry_set_r_read(Entry, Round) -> setelement(2, Entry, Round).
+
 -spec entry_r_write(entry()) -> pr:pr().
 entry_r_write(Entry) -> element(3, Entry).
 -spec entry_set_r_write(entry(), pr:pr()) -> entry().
 entry_set_r_write(Entry, Round) -> setelement(3, Entry, Round).
+
 -spec entry_val(entry()) -> any().
 entry_val(Entry) -> element(4, Entry).
 -spec entry_set_val(entry(), any()) -> entry().
 entry_set_val(Entry, Value) -> setelement(4, Entry, Value).
+
+-spec entry_cmd_class_read(entry()) -> cset:class().
+entry_cmd_class_read(Entry) -> element(5, Entry).
+-spec entry_set_cmd_class_read(entry(), cset:class()) -> entry().
+entry_set_cmd_class_read(Entry, Class) -> setelement(5, Entry, Class).
+
+-spec entry_set_cset(entry(), cset:cset()) -> entry().
+entry_set_cset(Entry, CSet) -> setelement(6, Entry, CSet).
+-spec entry_cset(entry()) -> cset:cset().
+entry_cset(Entry) -> element(6, Entry).
+
+-spec entry_prev_cset(entry()) -> cset:cset().
+entry_prev_cset(Entry) -> element(7, Entry).
+-spec entry_set_prev_cset(entry(), [any()]) -> entry().
+entry_set_prev_cset(Entry, CSetId) -> setelement(7, Entry, CSetId).
+
 
 -spec next_read_round(entry(), any()) -> pr:pr().
 next_read_round(Entry, ProposerUID) ->
@@ -433,31 +558,39 @@ next_read_round(Entry, ProposerUID) ->
     pr:new(util:max(LatestSeenRead, LatestSeenWrite) + 1, ProposerUID).
 
 
-
--spec writable(entry(), pr:pr(), pr:pr(), prbr:write_filter()) ->
-          true | {false, repair_required | denied}.
-writable(Entry, InRound, OldWriteRound, WF) ->
+-spec writable(entry(), cset:class(), pr:pr(), cset:cset(), prbr:write_filter()) ->
+          true | commute | {false, repair_required | denied}.
+writable(Entry, CmdClass, InRound, PrevCSet, IsWriteThrough) ->
+    CurrentCSet = entry_cset(Entry),
+    CurrentCmdClass = cset:get_class(entry_cset(Entry)),
     LatestSeenRead = entry_r_read(Entry),
     LatestSeenWrite = entry_r_write(Entry),
     InRoundR = pr:get_r(InRound),
-    InRoundId = pr:get_id(InRound),
     LatestSeenReadR = pr:get_r(LatestSeenRead),
-    LatestSeenReadId = pr:get_id(LatestSeenRead),
     LatestSeenWriteR = pr:get_r(LatestSeenWrite),
-    LatestSeenWriteId = pr:get_id(LatestSeenWrite),
-    OldWriteR = pr:get_r(OldWriteRound),
-    OldWriteId = pr:get_id(OldWriteRound),
-    IsNotPartialWrite = not is_partial_write(WF),
+
     %% make sure that no write filter operations are missing in the
     %% sequence of writes
-    GaplessWriteSequence = IsNotPartialWrite orelse
-                               (OldWriteR =:= LatestSeenWriteR andalso
-                                    OldWriteId =:= LatestSeenWriteId),
+    GaplessWriteSequence = IsWriteThrough orelse
+                               (cset:get_class(PrevCSet) =:= cset:get_class(CurrentCSet) andalso
+                                    cset:get_round(PrevCSet) =:= cset:get_round(CurrentCSet) andalso
+                                    %% this replica is not allowed to have cmds that were not seen
+                                    %% in the read quorum
+                                    cset:size(cset:subtract(CurrentCSet, PrevCSet)) =:= 0),
 
-    if ((InRoundR =:= LatestSeenReadR andalso InRoundId =:= LatestSeenReadId)
-            orelse (InRoundR > LatestSeenReadR))
-       andalso (InRoundR > LatestSeenWriteR)
-       andalso GaplessWriteSequence ->
+    IsCommutingClass = CmdClass =:= CurrentCmdClass andalso
+                           CmdClass =/= cset:non_commuting_class(),
+
+    if IsCommutingClass andalso
+       InRoundR =:= LatestSeenReadR andalso
+       InRoundR =:= LatestSeenWriteR ->
+            %% This write commutes with the last write on this replica.
+            %% Since the round numbers are also identical, no non-commuting
+            %% write has read this replica yet.
+            commute;
+       InRoundR >= LatestSeenReadR andalso
+       InRoundR > LatestSeenWriteR andalso
+       GaplessWriteSequence ->
 
             true;
        true ->
@@ -473,18 +606,15 @@ writable(Entry, InRound, OldWriteRound, WF) ->
                         true -> repair_required;
                         false -> denied
                      end,
-
             {false, Reason}
     end.
-
--spec is_partial_write(prbr:write_filter()) -> boolean().
-is_partial_write(Any) -> fun prbr:noop_write_filter/3 =/= Any.
 
 %% @doc Checks whether config parameters exist and are valid.
 -spec check_config() -> boolean().
 check_config() ->
     config:cfg_is_atom(redundancy_module) andalso
-        config:cfg_is_bool(prbr_repair_on_write).
+        config:cfg_is_bool(prbr_repair_on_write) andalso
+        config:cfg_is_integer(prbr_cset_size_soft_cap).
 
 -spec tester_create_write_filter(0) -> write_filter().
 tester_create_write_filter(0) -> fun prbr:noop_write_filter/3.

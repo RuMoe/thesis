@@ -1,0 +1,59 @@
+SHELL=@CXXSHELL@
+
+AR=ar
+ARFLAGS=rv
+RANLIB=echo
+CXX=@CXX@
+CXXFLAGS=@CXXFLAGS@ @BOOST_CPPFLAGS@ -Iinclude
+LDFLAGS=@LDFLAGS@ @BOOST_LDFLAGS@ @BOOST_SYSTEM_LIB@ @BOOST_REGEX_LIB@ @BOOST_ASIO_LIB@ @BOOST_UNIT_TEST_FRAMEWORK_LIB@ -lpthread
+
+ifeq ($(VERBOSE),1)
+  VC=
+  NVC=@@TRUE@ ||
+else
+  VC=@
+  NVC=@
+endif
+
+SRC_CPP=$(filter-out src/cli.cpp, $(wildcard src/*.cpp))
+TEST_SRC_CPP=$(wildcard test/*.cpp)
+
+OBJS=$(SRC_CPP:.cpp=.o)
+OBJS_TEST=$(TEST_SRC_CPP:.cpp=.o)
+
+all: libscalaris.a scalaris tests
+
+cpp-test : tests
+	$(VC)./tests --report_level=detailed
+
+tests: $(OBJS_TEST) $(OBJS)
+	$(NVC)echo -e "\e[0;33mCreating tests\033[39m"
+	$(VC)$(CXX) -o $@ $(OBJS_TEST) libscalaris.a $(LDFLAGS)
+
+libscalaris.a: $(OBJS)
+	$(NVC)echo -e "\e[0;33mCreating archive" $@ "\033[39m"
+	$(VC)$(AR) $(ARFLAGS) $@ $(OBJS)
+
+.cpp.o: Makefile
+	$(NVC)echo -e "\e[0;32mCompiling" $< "\033[39m"
+	$(VC)$(CXX) -MD $(CXXFLAGS)  -c $< -o $@
+
+scalaris: libscalaris.a src/cli.o
+	$(NVC)echo -e "\e[0;31mCreating scalaris\033[39m"
+	$(VC)$(CXX) -o $@ src/cli.o libscalaris.a @LDFLAGS@ @BOOST_LDFLAGS@ @BOOST_SYSTEM_LIB@ @BOOST_PROGRAM_OPTIONS_LIB@ -lpthread
+
+clean:
+	@-rm -rf $(shell find . -type f -name '*.o')
+	@-rm -rf $(shell find . -type f -name '*.d')
+	@-rm -f ./tests ./scalaris
+
+-include $(OBJS:.o=.d)
+-include $(OBJS_TEST:.o=.d)
+
+.PHONY: all cpp-test clean tests beautify tidy
+
+beautify:
+	@CLANGFORMAT@ -style=file -i src/*.[hc]pp test/*.[hc]pp
+
+tidy:
+	@CLANGTIDY@ src/cli.cpp $(filter-out src/jsoncpp.cpp, $(SRC_CPP)) $(TEST_SRC_CPP) -- $(CXXFLAGS)

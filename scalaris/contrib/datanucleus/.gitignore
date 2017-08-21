@@ -1,0 +1,16 @@
+*.class
+datanucleus.log
+
+*.jar
+/bin
+
+# maven
+target/
+release.properties
+
+# eclipse
+*.project
+*.metadata
+*.tmp
+local.properties
+.loadpath

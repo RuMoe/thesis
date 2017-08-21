@@ -1,0 +1,5 @@
+libscalaris.a
+Makefile
+*.d
+*.o
+tests

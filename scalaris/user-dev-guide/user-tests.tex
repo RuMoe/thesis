@@ -1,0 +1,330 @@
+\chapter{Testing the system}
+
+\section{Erlang unit tests}
+There are some unit tests in the \code{test} directory which test \scalaris{}
+itself (the Erlang code). You can call them
+by running \code{make test} in the main directory. The results are stored
+in a local \code{index.html} file. 
+
+The tests are implemented with the \code{common-test} package from the
+Erlang system. For running the tests we rely on \code{run\_test},
+which is part of the \code{common-test} package, but (on erlang $<$ R14) is not
+installed by default. \code{configure} will check whether \code{run\_test} is
+available. If it is not installed, it will show a warning and a short
+description of how to install the missing file.
+
+Note: for the unit tests, we are setting up and shutting down several
+overlay networks. During the shut down phase, the runtime environment
+will print extensive error messages. These error messages do not
+indicate that tests failed! Running the complete test suite takes
+about 10-20 minutes, depending on your machine.
+
+If the test suite is interrupted before finishing, the results may not have
+been linked into the \code{index.html} file. They are however stored in the
+\code{ct_run.ct@...} directory.
+
+\section{Java unit tests}
+The Java unit tests can be run by executing \code{make java-test} in the main
+directory. This will start a \scalaris{} node with the default ports and test
+all functions of the Java API. A typical run will look like the
+following:
+
+\begin{lstlisting}[language={}]
+%> make java-test
+[...]
+tools.test:
+    [junit] Running de.zib.tools.PropertyLoaderTest
+    [junit] Testsuite: de.zib.tools.PropertyLoaderTest
+    [junit] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.017 sec
+    [junit] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.017 sec
+    [junit] 
+    [junit] ------------- Standard Output ---------------
+    [junit] Working Directory = <scalarisdir>/java-api/classes
+    [junit] ------------- ---------------- ---------------
+[...]
+scalaris.test:
+    [junit] Running de.zib.scalaris.ConnectionTest
+    [junit] Testsuite: de.zib.scalaris.ConnectionTest
+    [junit] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.303 sec
+    [junit] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.303 sec
+    [junit] 
+    [junit] Running de.zib.scalaris.DefaultConnectionPolicyTest
+    [junit] Testsuite: de.zib.scalaris.DefaultConnectionPolicyTest
+    [junit] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.309 sec
+    [junit] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.309 sec
+    [junit] 
+    [junit] Running de.zib.scalaris.ErlangValueTest
+    [junit] Testsuite: de.zib.scalaris.ErlangValueTest
+    [junit] Tests run: 19, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 14.444 sec
+    [junit] Tests run: 19, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 14.444 sec
+    [junit] 
+    [junit] Running de.zib.scalaris.MonitorTest
+    [junit] Testsuite: de.zib.scalaris.MonitorTest
+    [junit] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.064 sec
+    [junit] Tests run: 10, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.064 sec
+    [junit] 
+    [junit] Running de.zib.scalaris.PeerNodeTest
+    [junit] Testsuite: de.zib.scalaris.PeerNodeTest
+    [junit] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.066 sec
+    [junit] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.066 sec
+    [junit] 
+    [junit] Running de.zib.scalaris.ReplicatedDHTTest
+    [junit] Testsuite: de.zib.scalaris.ReplicatedDHTTest
+    [junit] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.723 sec
+    [junit] Tests run: 6, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.723 sec
+    [junit] 
+    [junit] Running de.zib.scalaris.ScalarisTest
+    [junit] Testsuite: de.zib.scalaris.ScalarisTest
+    [junit] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.063 sec
+    [junit] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.063 sec
+    [junit] 
+    [junit] Running de.zib.scalaris.ScalarisVMTest
+    [junit] Testsuite: de.zib.scalaris.ScalarisVMTest
+    [junit] Tests run: 42, Failures: 0, Errors: 0, Skipped: 2, Time elapsed: 0.699 sec
+    [junit] Tests run: 42, Failures: 0, Errors: 0, Skipped: 2, Time elapsed: 0.699 sec
+    [junit] 
+    [junit] Testcase: testKillVM1(de.zib.scalaris.ScalarisVMTest):SKIPPED: we still need the Scalaris Erlang VM
+    [junit] Testcase: testShutdownVM1(de.zib.scalaris.ScalarisVMTest):SKIPPED: we still need the Scalaris Erlang VM
+    [junit] Running de.zib.scalaris.TransactionSingleOpTest
+    [junit] Testsuite: de.zib.scalaris.TransactionSingleOpTest
+    [junit] Tests run: 34, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.996 sec
+    [junit] Tests run: 34, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 3.996 sec
+    [junit] 
+    [junit] Running de.zib.scalaris.TransactionTest
+    [junit] Testsuite: de.zib.scalaris.TransactionTest
+    [junit] Tests run: 30, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.803 sec
+    [junit] Tests run: 30, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.803 sec
+    [junit] 
+
+test:
+
+BUILD SUCCESSFUL
+Total time: 27 seconds
+'jtest_boot@csr-pc40.zib.de'
+\end{lstlisting}
+
+\section{Python2 unit tests}
+The Python unit tests can be run by executing \code{make python-test} in the
+main directory. This will start a \scalaris{} node with the default ports and test
+all functions of the Python API. A typical run will look like the
+following:
+
+\begin{lstlisting}[language={}]
+%> make python-test
+[...]
+testDelete1 (__main__.TestReplicatedDHT) ... ok
+testDelete2 (__main__.TestReplicatedDHT) ... ok
+testDelete_notExistingKey (__main__.TestReplicatedDHT) ... ok
+testDoubleClose (__main__.TestReplicatedDHT) ... ok
+testReplicatedDHT1 (__main__.TestReplicatedDHT) ... ok
+testReplicatedDHT2 (__main__.TestReplicatedDHT) ... ok
+testAddNodes0 (__main__.TestScalarisVM)
+Test method for ScalarisVM.addNodes(0). ... ok
+testAddNodes1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.addNodes(1). ... ok
+testAddNodes3 (__main__.TestScalarisVM)
+Test method for ScalarisVM.addNodes(3). ... ok
+testAddNodes_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.addNodes() with a closed connection. ... ok
+testDoubleClose (__main__.TestScalarisVM) ... ok
+testGetInfo1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.getInfo(). ... ok
+testGetInfo_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.getInfo() with a closed connection. ... ok
+testGetNodes1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.getNodes(). ... ok
+testGetNodes_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.getNodes() with a closed connection. ... ok
+testGetNumberOfNodes1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.getVersion(). ... ok
+testGetNumberOfNodes_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.getNumberOfNodes() with a closed connection. ... ok
+testGetOtherVMs1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.getOtherVMs(1). ... ok
+testGetOtherVMs2 (__main__.TestScalarisVM)
+Test method for ScalarisVM.getOtherVMs(2). ... ok
+testGetOtherVMs3 (__main__.TestScalarisVM)
+Test method for ScalarisVM.getOtherVMs(3). ... ok
+testGetOtherVMs_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.getOtherVMs() with a closed connection. ... ok
+testGetVersion1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.getVersion(). ... ok
+testGetVersion_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.getVersion() with a closed connection. ... ok
+testKillNode1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.killNode(). ... ok
+testKillNode_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.killNode() with a closed connection. ... ok
+testKillNodes0 (__main__.TestScalarisVM)
+Test method for ScalarisVM.killNodes(0). ... ok
+testKillNodes1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.killNodes(1). ... ok
+testKillNodes3 (__main__.TestScalarisVM)
+Test method for ScalarisVM.killNodes(3). ... ok
+testKillNodesByName0 (__main__.TestScalarisVM)
+Test method for ScalarisVM.killNodesByName(0). ... ok
+testKillNodesByName1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.killNodesByName(1). ... ok
+testKillNodesByName3 (__main__.TestScalarisVM)
+Test method for ScalarisVM.killNodesByName(3). ... ok
+testKillNodesByName_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.killNodesByName() with a closed connection. ... ok
+testKillNodes_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.killNodes() with a closed connection. ... ok
+testScalarisVM1 (__main__.TestScalarisVM) ... ok
+testScalarisVM2 (__main__.TestScalarisVM) ... ok
+testShutdownNode1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.shutdownNode(). ... ok
+testShutdownNode_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.shutdownNode() with a closed connection. ... ok
+testShutdownNodes0 (__main__.TestScalarisVM)
+Test method for ScalarisVM.shutdownNodes(0). ... ok
+testShutdownNodes1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.shutdownNodes(1). ... ok
+testShutdownNodes3 (__main__.TestScalarisVM)
+Test method for ScalarisVM.shutdownNodes(3). ... ok
+testShutdownNodesByName0 (__main__.TestScalarisVM)
+Test method for ScalarisVM.shutdownNodesByName(0). ... ok
+testShutdownNodesByName1 (__main__.TestScalarisVM)
+Test method for ScalarisVM.shutdownNodesByName(1). ... ok
+testShutdownNodesByName3 (__main__.TestScalarisVM)
+Test method for ScalarisVM.shutdownNodesByName(3). ... ok
+testShutdownNodesByName_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.shutdownNodesByName() with a closed connection. ... ok
+testShutdownNodes_NotConnected (__main__.TestScalarisVM)
+Test method for ScalarisVM.shutdownNodes() with a closed connection. ... ok
+testAbort_Empty (__main__.TestTransaction) ... ok
+testAbort_NotConnected (__main__.TestTransaction) ... ok
+testCommit_Empty (__main__.TestTransaction) ... ok
+testCommit_NotConnected (__main__.TestTransaction) ... ok
+testDoubleClose (__main__.TestTransaction) ... ok
+testRead_NotConnected (__main__.TestTransaction) ... ok
+testRead_NotFound (__main__.TestTransaction) ... ok
+testReqList1 (__main__.TestTransaction) ... ok
+testReqList_Empty (__main__.TestTransaction) ... ok
+testReqTooLarge (__main__.TestTransaction) ... ok
+testTransaction1 (__main__.TestTransaction) ... ok
+testTransaction3 (__main__.TestTransaction) ... ok
+testVarious (__main__.TestTransaction) ... ok
+testWriteList1 (__main__.TestTransaction) ... ok
+testWriteString (__main__.TestTransaction) ... ok
+testWriteString_NotConnected (__main__.TestTransaction) ... ok
+testWriteString_NotFound (__main__.TestTransaction) ... ok
+testDoubleClose (__main__.TestTransactionSingleOp) ... ok
+testRead_NotConnected (__main__.TestTransactionSingleOp) ... ok
+testRead_NotFound (__main__.TestTransactionSingleOp) ... ok
+testReqList1 (__main__.TestTransactionSingleOp) ... ok
+testReqList_Empty (__main__.TestTransactionSingleOp) ... ok
+testReqTooLarge (__main__.TestTransactionSingleOp) ... ok
+testTestAndSetList1 (__main__.TestTransactionSingleOp) ... ok
+testTestAndSetList2 (__main__.TestTransactionSingleOp) ... ok
+testTestAndSetList_NotConnected (__main__.TestTransactionSingleOp) ... ok
+testTestAndSetList_NotFound (__main__.TestTransactionSingleOp) ... ok
+testTestAndSetString1 (__main__.TestTransactionSingleOp) ... ok
+testTestAndSetString2 (__main__.TestTransactionSingleOp) ... ok
+testTestAndSetString_NotConnected (__main__.TestTransactionSingleOp) ... ok
+testTestAndSetString_NotFound (__main__.TestTransactionSingleOp) ... ok
+testTransactionSingleOp1 (__main__.TestTransactionSingleOp) ... ok
+testTransactionSingleOp2 (__main__.TestTransactionSingleOp) ... ok
+testWriteList1 (__main__.TestTransactionSingleOp) ... ok
+testWriteList2 (__main__.TestTransactionSingleOp) ... ok
+testWriteList_NotConnected (__main__.TestTransactionSingleOp) ... ok
+testWriteString1 (__main__.TestTransactionSingleOp) ... ok
+testWriteString2 (__main__.TestTransactionSingleOp) ... ok
+testWriteString_NotConnected (__main__.TestTransactionSingleOp) ... ok
+
+----------------------------------------------------------------------
+Ran 84 tests in 3.565s
+
+OK
+'jtest_boot@csr-pc40.zib.de'
+\end{lstlisting}
+
+\section{Python3 unit tests}
+The Python 3 tests are similar to the Python 2 tests above and can be run by
+executing \code{make python3-test}.
+
+\section{Ruby unit tests}
+The Ruby unit tests can be run by executing \code{make ruby-test} in the
+main directory. This will start a \scalaris{} node with the default ports and test
+all functions of the Ruby API. A typical run will look like the
+following:
+
+\begin{lstlisting}[language={}]
+%> make ruby-test
+[...]
+# Running tests:
+
+TestReplicatedDHT#testDelete1 = 0.19 s = .
+TestReplicatedDHT#testDelete2 = 0.29 s = .
+TestReplicatedDHT#testDelete_notExistingKey = 0.05 s = .
+TestReplicatedDHT#testDoubleClose = 0.00 s = .
+TestReplicatedDHT#testReplicatedDHT1 = 0.00 s = .
+TestReplicatedDHT#testReplicatedDHT2 = 0.00 s = .
+TestTransaction#testAbort_Empty = 0.00 s = .
+TestTransaction#testAbort_NotConnected = 0.00 s = .
+TestTransaction#testCommit_Empty = 0.00 s = .
+TestTransaction#testCommit_NotConnected = 0.00 s = .
+TestTransaction#testDoubleClose = 0.00 s = .
+TestTransaction#testRead_NotConnected = 0.00 s = .
+TestTransaction#testRead_NotFound = 0.00 s = .
+TestTransaction#testReqList1 = 0.02 s = .
+TestTransaction#testReqList_Empty = 0.00 s = .
+TestTransaction#testReqTooLarge = 0.38 s = .
+TestTransaction#testTransaction1 = 0.00 s = .
+TestTransaction#testTransaction3 = 0.00 s = .
+TestTransaction#testVarious = 0.01 s = .
+TestTransaction#testWriteList1 = 0.08 s = .
+TestTransaction#testWriteString = 0.11 s = .
+TestTransaction#testWriteString_NotConnected = 0.00 s = .
+TestTransaction#testWriteString_NotFound = 0.00 s = .
+TestTransactionSingleOp#testDoubleClose = 0.00 s = .
+TestTransactionSingleOp#testRead_NotConnected = 0.00 s = .
+TestTransactionSingleOp#testRead_NotFound = 0.00 s = .
+TestTransactionSingleOp#testReqList1 = 0.03 s = .
+TestTransactionSingleOp#testReqList_Empty = 0.00 s = .
+TestTransactionSingleOp#testReqTooLarge = 0.38 s = .
+TestTransactionSingleOp#testTestAndSetList1 = 0.07 s = .
+TestTransactionSingleOp#testTestAndSetList2 = 0.05 s = .
+TestTransactionSingleOp#testTestAndSetList_NotConnected = 0.00 s = .
+TestTransactionSingleOp#testTestAndSetList_NotFound = 0.00 s = .
+TestTransactionSingleOp#testTestAndSetString1 = 0.06 s = .
+TestTransactionSingleOp#testTestAndSetString2 = 0.08 s = .
+TestTransactionSingleOp#testTestAndSetString_NotConnected = 0.00 s = .
+TestTransactionSingleOp#testTestAndSetString_NotFound = 0.00 s = .
+TestTransactionSingleOp#testTransactionSingleOp1 = 0.00 s = .
+TestTransactionSingleOp#testTransactionSingleOp2 = 0.00 s = .
+TestTransactionSingleOp#testWriteList1 = 0.06 s = .
+TestTransactionSingleOp#testWriteList2 = 0.02 s = .
+TestTransactionSingleOp#testWriteList_NotConnected = 0.00 s = .
+TestTransactionSingleOp#testWriteString1 = 0.08 s = .
+TestTransactionSingleOp#testWriteString2 = 0.05 s = .
+TestTransactionSingleOp#testWriteString_NotConnected = 0.00 s = .
+
+
+Finished tests in 2.040348s, 22.0551 tests/s, 675.8650 assertions/s.
+
+45 tests, 1379 assertions, 0 failures, 0 errors, 0 skips
+
+ruby -v: ruby 2.1.3p242 (2014-09-19 revision 47630) [x86_64-linux-gnu]
+'jtest_boot@csr-pc40.zib.de'
+\end{lstlisting}
+
+\section{Interoperability Tests}
+In order to check whether the common types described in
+Section~\sieheref{chapter.systemuse.apis} are fully supported by the APIs
+and yield to the appropriate types in another API, we implemented some
+interoperability tests. Two make targets exist:
+\begin{itemize}
+  \item \code{make interop-test} verifies compliance in Java, Python2 and Ruby,
+  \item \code{make interop3-test} verifies compliance in Java, Python2, Python3 and Ruby.
+\end{itemize}
+This will start a \scalaris{} node with the default ports, write test data using
+the mentioned APIs and let each API read the data it wrote
+itself as well as the data the other APIs wrote. On success it will print
+
+\begin{lstlisting}[language={}]
+%> make interop3-test
+[...]
+all tests successful
+\end{lstlisting}

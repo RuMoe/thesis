@@ -1,0 +1,42 @@
+Source: scalaris-bindings
+Section: devel
+Priority: optional
+Maintainer: Nico Kruber <kruber@zib.de>
+Build-Depends: debhelper (>= 4.1.16), erlang-dev (>= 14.b.4), erlang-tools (>= 14.b.4), erlang-edoc (>= 14.b.4), erlang-crypto (>= 14.b.4), ant, openjdk-7-jdk | java6-sdk, pkg-config, ruby, python-dev (>= 2.6.0), python-epydoc, graphviz, python3-dev, automake, libboost-dev (>= 1.47), libboost-regex-dev (>= 1.47), libboost-system-dev (>= 1.47), libboost-test-dev (>= 1.47), libboost-program-options-dev (>= 1.47)
+Homepage: http://scalaris.zib.de
+Standards-Version: 3.9.6
+
+Package: scalaris-java
+Section: java
+Architecture: all
+Depends: ${misc:Depends}, debianutils, hostname, java6-runtime
+Description: Java-API and Java-Client for Scalaris
+ Java Bindings and command line client for Scalaris.
+
+Package: libscalaris-dev
+Section: devel
+Architecture: any
+Depends: ${misc:Depends}, libboost-dev (>= 1.47), libboost-regex-dev (>= 1.47), libboost-system-dev (>= 1.47), libboost-test-dev (>= 1.47), libboost-program-options-dev (>= 1.47)
+Description: C++-API for Scalaris
+ C++ Bindings for Scalaris.
+
+Package: scalaris-ruby
+Section: ruby
+Architecture: all
+Depends: ${misc:Depends}, ruby, ruby-json (>= 1.4.1)
+Description: Ruby-API and Ruby-client for Scalaris
+ Ruby bindings and Ruby command line client for Scalaris.
+
+Package: python-scalaris
+Section: python
+Architecture: all
+Depends: ${misc:Depends}, python (>= 2.6.0)
+Description: Python-API and Python-client for Scalaris
+ Python bindings and Python command line client for Scalaris.
+
+Package: python3-scalaris
+Section: python
+Architecture: all
+Depends: ${misc:Depends}, python3
+Description: Python3-API and Python3-client for Scalaris
+ Python3 bindings and Python3 command line client for Scalaris.
